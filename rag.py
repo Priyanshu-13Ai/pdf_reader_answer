@@ -83,14 +83,19 @@ def get_embedding_model(model_name: str = "all-MiniLM-L6-v2"):
     )
 
 
+import chromadb
+
 def create_vector_store(chunks: list[Document], embedding_model):
     """
     Creates an ephemeral (in-memory) Chroma vector database from chunks and embedding model.
-    Using an in-memory client ensures clean database states per upload.
+    Using a fresh EphemeralClient ensures complete isolation between uploads and prevents document pollution.
     """
+    chroma_client = chromadb.EphemeralClient()
     return Chroma.from_documents(
         documents=chunks,
-        embedding=embedding_model
+        embedding=embedding_model,
+        client=chroma_client,
+        collection_name="pdf_chat"
     )
 
 
@@ -114,6 +119,23 @@ def answer_question(query: str, vector_store, llm, k: int = 3) -> dict:
     3. Pass query + context to Llama 3 on Groq.
     4. Return the generated answer and references (sources).
     """
+    # Detect general summary/overview queries to dynamically expand context
+    query_lower = query.lower()
+    general_keywords = [
+        "what is this file", "what is this pdf", "what is this document",
+        "whats in this file", "whats in this pdf", "whats in this document",
+        "summarize", "summary", "about", "overview", "main topic", "what does this file contain"
+    ]
+    is_general_query = any(keyword in query_lower for keyword in general_keywords)
+    
+    if is_general_query:
+        # Retrieve all chunks if the document is short, or up to 10 chunks for larger documents
+        try:
+            total_chunks = len(vector_store.get().get('ids', []))
+            k = min(max(total_chunks, 3), 10)
+        except Exception:
+            k = 10  # Fallback to 10 if we can't query count
+
     # 1. Similarity search to retrieve relevant context
     retrieved_docs = vector_store.similarity_search(query, k=k)
     
