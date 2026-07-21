@@ -17,6 +17,12 @@ from rag import (
     answer_question
 )
 
+# Cache the embedding model globally — downloaded only ONCE per server session.
+# This prevents re-downloading the model weights on every interaction.
+@st.cache_resource(show_spinner="Loading embedding model...")
+def load_embedding_model():
+    return get_embedding_model()
+
 # Page configuration
 st.set_page_config(
     page_title="InsightPDF - Intelligent PDF Chatbot",
@@ -182,6 +188,13 @@ if uploaded_file is not None:
     # Compound key to detect document name or parameter updates
     settings_key = f"{uploaded_file.name}_{chunk_size}_{chunk_overlap}"
     
+    # If the FILE NAME has changed (different PDF), wipe the previous vector store immediately
+    if st.session_state.processed_pdf_name and not st.session_state.processed_pdf_name.startswith(uploaded_file.name):
+        st.session_state.vector_store = None
+        st.session_state.processed_pdf_name = None
+        st.session_state.chat_history = []
+        st.session_state.stats = {}
+
     if st.session_state.processed_pdf_name != settings_key:
         with st.sidebar:
             st.markdown("### ⚙️ Pipeline Process Status")
@@ -210,7 +223,9 @@ if uploaded_file is not None:
             step3 = st.empty()
             step3.markdown('<div class="step-box"><span class="step-icon">⏳</span>Generating Embeddings & Storing in ChromaDB...</div>', unsafe_allow_html=True)
             try:
-                embedding_model = get_embedding_model()
+                embedding_model = load_embedding_model()
+                # create_vector_store uses a fresh EphemeralClient + UUID collection
+                # per call — guarantees zero contamination from old uploads
                 vector_store = create_vector_store(chunks, embedding_model)
                 step3.markdown('<div class="step-box completed"><span class="step-icon">✅</span>ChromaDB Indexing Complete</div>', unsafe_allow_html=True)
                 

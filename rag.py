@@ -1,5 +1,6 @@
 # rag.py
 
+import uuid
 import fitz  # PyMuPDF
 from langchain_core.documents import Document
 
@@ -88,14 +89,17 @@ import chromadb
 def create_vector_store(chunks: list[Document], embedding_model):
     """
     Creates an ephemeral (in-memory) Chroma vector database from chunks and embedding model.
-    Using a fresh EphemeralClient ensures complete isolation between uploads and prevents document pollution.
+    A fresh EphemeralClient + UUID collection name guarantees ZERO cross-contamination
+    between different PDF uploads, even within the same Streamlit session.
     """
     chroma_client = chromadb.EphemeralClient()
+    # Unique collection name per call — prevents any chance of stale data leaking
+    unique_collection = f"pdf_chat_{uuid.uuid4().hex}"
     return Chroma.from_documents(
         documents=chunks,
         embedding=embedding_model,
         client=chroma_client,
-        collection_name="pdf_chat"
+        collection_name=unique_collection
     )
 
 
